@@ -1,0 +1,201 @@
+version: '2.1'
+services:
+  # Wireguard
+  wireguard:
+    image: linuxserver/wireguard:latest
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+    volumes:
+      - /opt/docker/volumes/wireguard/config:/config
+      - /lib/modules:/lib/modules
+    ports:
+      - 51820:51820/udp
+      - 7878:7878 # radarr
+      - 8989:8989 # sonarr
+      - 9091:9091 # transmission
+      - 9117:9117 # jackett
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+
+  # Transmission
+  transmission:
+    image: linuxserver/transmission:latest
+    container_name: transmission
+    environment:
+      - PUID=1000
+      - UGID=1000
+      - TZ=Europe/London
+      - TRANSMISSION_WEB_HOME=/transmission-web-control/
+    volumes:
+      - /opt/docker/volumes/transmission/config:/config
+      - /opt/data/downloads:/data/downloads
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    depends_on:
+      - wireguard
+    network_mode: service:wireguard
+
+  # Jackett
+  jackett:
+    image: ghcr.io/linuxserver/jackett:latest
+    container_name: jackett
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+      - AUTO_UPDATE=true
+      - RUN_OPTS=
+    volumes:
+      - /opt/docker/volumes/jackett/config:/config
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    depends_on:
+      - wireguard
+      - flaresolverr
+    network_mode: service:wireguard
+
+  # Flaresolverr
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=hcaptcha-solver
+        #- CAPTCHA_SOLVER=harvester
+        #- HARVESTER_ENDPOINT=https://127.0.0.1:5000/token
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    depends_on:
+      - wireguard
+    network_mode: service:wireguard
+
+  # Radarr
+  radarr:
+    image: ghcr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+    volumes:
+      - /opt/docker/volumes/radarr/config:/config
+      - /opt/data:/data
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    depends_on:
+      - wireguard
+      - transmission
+      - jackett
+    network_mode: service:wireguard
+
+  # Sonarr
+  sonarr:
+    image: ghcr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+    volumes:
+      - /opt/docker/volumes/sonarr/config:/config
+      - /opt/data:/data
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    depends_on:
+      - wireguard
+      - transmission
+      - jackett
+    network_mode: service:wireguard
+
+  # Swag (https)
+  swag:
+    image: ghcr.io/linuxserver/swag
+    container_name: swag
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+      # put your domain name here
+      - URL=example.com
+      # add "plex" to access it with plex.yourdomain.com
+      - SUBDOMAINS=jellyfin,
+      - VALIDATION=http
+    volumes:
+      - /opt/docker/volumes/swag/config:/config
+    ports:
+      - 443:443
+      - 80:80
+    restart: unless-stopped
+
+  # Plex
+  plex:
+    image: ghcr.io/linuxserver/plex:latest
+    container_name: plex
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+      - VERSION=docker
+    volumes:
+      - /opt/docker/volumes/plex/config:/config
+      - /opt/data/media:/data/media
+      # if you want to use your own domain, even if plex offer theirs
+      #- /opt/docker/volumes/swag/config:/swag
+    ports:
+      - 32400:32400
+      - 1900:1900/udp
+      - 3005:3005
+      - 5353:5353/udp
+      - 8324:8324
+      - 32410:32410/udp
+      - 32412:32412/udp
+      - 32413:32413/udp
+      - 32414:32414/udp
+      - 32469:32469
+    restart: unless-stopped
+    depends_on:
+      - radarr 
+      - sonarr
+      # also if you want to use your domain
+      #- swag
+
+  # Jellyfin
+  jellyfin:
+    image: ghcr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/London
+    volumes:
+      - /opt/docker/volumes/jellyfin/config:/config
+      - /opt/data/media:/data/media
+      - /opt/docker/volumes/swag/config:/swag
+    ports:
+      - 8096:8096
+      - 8920:8920
+      - 7359:7359/udp
+      - 1900:1900/udp
+    restart: unless-stopped
+    depends_on:
+      - radarr 
+      - sonarr
+      - swag
